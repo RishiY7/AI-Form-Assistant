@@ -25,10 +25,14 @@ export function ChatInterface({ language, setLanguage }: ChatInterfaceProps) {
     
     // Ensure we cancel any current speech
     window.speechSynthesis.cancel();
+    
+    // Strip markdown formatting (asterisks, underscores, hashes, backticks)
+    const cleanText = text.replace(/[*_#`]/g, '').trim();
+    if (!cleanText) return;
 
     if (language === 'Kannada') {
       try {
-        const response = await axios.post('http://localhost:8000/api/tts', { text, lang: 'kn' }, { responseType: 'blob' });
+        const response = await axios.post('http://localhost:8000/api/tts', { text: cleanText, lang: 'kn' }, { responseType: 'blob' });
         const audioUrl = URL.createObjectURL(response.data);
         const audio = new Audio(audioUrl);
         audio.play();
@@ -38,7 +42,7 @@ export function ChatInterface({ language, setLanguage }: ChatInterfaceProps) {
       }
     }
 
-    const utterance = new SpeechSynthesisUtterance(text);
+    const utterance = new SpeechSynthesisUtterance(cleanText);
     const langMap: Record<string, string> = {
       'English': 'en-IN',
       'Hindi': 'hi-IN',

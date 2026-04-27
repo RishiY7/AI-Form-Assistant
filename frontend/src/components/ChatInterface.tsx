@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import { Bot, User, Loader2, Mic, MicOff } from 'lucide-react';
+import { Bot, User, Loader2, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import { translateText } from '../translations';
 import { TranslatedText } from './TranslatedText';
 import './ChatInterface.css';
@@ -16,14 +16,79 @@ export function ChatInterface({ language, setLanguage }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const speak = (text: string) => {
+    if (isMuted || !text) return;
+    
+    // Ensure we cancel any current speech
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const langMap: Record<string, string> = {
+      'English': 'en-IN',
+      'Hindi': 'hi-IN',
+      'Kannada': 'kn-IN'
+    };
+    
+    const targetLang = langMap[language] || 'en-IN';
+    utterance.lang = targetLang;
+
+    const setVoice = () => {
+      const voices = window.speechSynthesis.getVoices();
+      
+      // Detailed logging to debug which voices the browser sees
+      console.log("Available voices:", voices.map(v => `${v.name} (${v.lang})`));
+
+      let preferredVoice = null;
+      
+      if (language === 'Kannada') {
+        // Try multiple ways to find Kannada
+        preferredVoice = voices.find(v => 
+          v.lang.toLowerCase().startsWith('kn') || 
+          v.name.toLowerCase().includes('kannada') || 
+          v.name.toLowerCase().includes('kn-in')
+        );
+      } else if (language === 'Hindi') {
+        preferredVoice = voices.find(v => 
+          v.lang.toLowerCase().startsWith('hi') || 
+          v.name.toLowerCase().includes('hindi') || 
+          v.name.toLowerCase().includes('hi-in')
+        );
+      } else {
+        preferredVoice = voices.find(v => 
+          v.lang.toLowerCase().startsWith('en')
+        );
+      }
+      
+      if (preferredVoice) {
+        utterance.voice = preferredVoice;
+        console.log(`Matched voice for ${language}: ${preferredVoice.name} (${preferredVoice.lang})`);
+      } else {
+        console.warn(`No specific voice found for ${language}, using default.`);
+      }
+      
+      utterance.rate = 0.9;
+      window.speechSynthesis.speak(utterance);
+    };
+
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      setVoice();
+    } else {
+      window.speechSynthesis.onvoiceschanged = setVoice;
+    }
+  };
 
   // Initialize initial message via API
   useEffect(() => {
     async function init() {
       const welcome = await translateText('Hello! I have analyzed the form. How can I help you understand or fill it out?', language);
       setMessages([{ role: 'assistant', content: welcome }]);
+      // Wait a bit for voices to load before speaking initial message
+      setTimeout(() => speak(welcome), 500);
     }
     init();
   }, [language]);
@@ -100,11 +165,15 @@ export function ChatInterface({ language, setLanguage }: ChatInterfaceProps) {
         language: language
       });
       
-      setMessages(prev => [...prev, { role: 'assistant', content: response.data.answer }]);
+      const answer = response.data.answer;
+      setMessages(prev => [...prev, { role: 'assistant', content: answer }]);
+      speak(answer);
     } catch (error: any) {
       const errorBase = await translateText('Sorry, I encountered an error. Please try asking again.', language);
       const errorPrefix = await translateText('Error:', language);
-      setMessages(prev => [...prev, { role: 'assistant', content: `${errorPrefix} ${errorBase}` }]);
+      const fullError = `${errorPrefix} ${errorBase}`;
+      setMessages(prev => [...prev, { role: 'assistant', content: fullError }]);
+      speak(fullError);
     } finally {
       setIsLoading(false);
     }
@@ -172,6 +241,19 @@ export function ChatInterface({ language, setLanguage }: ChatInterfaceProps) {
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 8px' }}
         >
           {isListening ? <MicOff style={{ color: '#ba1a1a' }} size={20} /> : <Mic className="text-primary" size={20} />}
+        </button>
+        <button 
+          className="icon-btn volume-btn" 
+          onClick={() => {
+            const newMuted = !isMuted;
+            setIsMuted(newMuted);
+            if (newMuted) window.speechSynthesis.cancel();
+          }} 
+          type="button" 
+          title={isMuted ? "Unmute Assistant" : "Mute Assistant"}
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 8px' }}
+        >
+          {isMuted ? <VolumeX size={20} style={{ color: '#6b7280' }} /> : <Volume2 className="text-primary" size={20} />}
         </button>
         <input
           type="text"

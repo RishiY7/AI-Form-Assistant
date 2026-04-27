@@ -1,16 +1,7 @@
-from google import genai
-from google.genai import types
 import json
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY is missing from the .env file")
-
-client = genai.Client(api_key=GEMINI_API_KEY)
+from google.genai import types
+from gemini_util import gemini_manager
 
 def process_form_images(image_paths: list[str]):
     print(f"Uploading and processing {len(image_paths)} image(s) with Gemini...")
@@ -45,21 +36,33 @@ def process_form_images(image_paths: list[str]):
     
     Output the result STRICTLY as a JSON object with three keys:
     - "extracted_content": A string containing all the extracted text combined.
-    - "required_documents": A list of strings, each being a required document mentioned in the form. If none are found, return an empty list [].
-    - "form_fields": A list of strings, representing the blank fields or columns in the form that the user needs to fill (e.g., "Full Name", "Date of Birth", "Address"). Return an empty list [] if none are found.
+    - "required_documents": A list of strings, each being a required document mentioned in the form.
+    - "form_fields": A list of strings, representing the blank fields or columns in the form that the user needs to fill.
+    
+    IMPORTANT: For "required_documents" and "form_fields", if the form is NOT in English, provide each item as "Original Text / English Translation". If the form is in English, just provide the original text.
     
     Do not wrap the JSON in markdown blocks (e.g., no ```json ... ```). Output ONLY valid JSON.
     """
 
     content_payload = [prompt] + image_parts
 
-    response = client.models.generate_content(
-        model='gemini-2.0-flash',
-        contents=content_payload,
-        config=types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(thinking_budget=1024)
+    def make_request(client, model_name):
+        config = None
+        if "3.1-flash-lite" in model_name:
+            config = types.GenerateContentConfig(thinking_config=types.ThinkingConfig(thinking_budget=1024))
+        
+        return client.models.generate_content(
+            model=model_name,
+            contents=content_payload,
+            config=config
         )
-    )
+
+    # Try 3.1-flash-lite, then 2.5-flash via the manager
+    try:
+        response = gemini_manager.call_with_fallback(make_request, "gemini-3.1-flash-lite-preview")
+    except Exception:
+        print("Switching to gemini-2.5-flash fallback chain...")
+        response = gemini_manager.call_with_fallback(make_request, "gemini-2.5-flash")
     
     try:
         # Strip potential markdown formatting if model didn't listen strictly

@@ -52,12 +52,14 @@ function App() {
     // Instantly show the original extracted data so the UI doesn't appear stuck
     setTranslatedData(extractedData);
     
-    if (language === 'English') {
-      return;
-    }
-
     let isMounted = true;
     const translateContent = async () => {
+      if (language === 'English') {
+        // Reset to original data for English
+        if (isMounted) setTranslatedData(extractedData);
+        return;
+      }
+      
       try {
         const reqDocsRes = await axios.post<{ translated_texts: string[] }>('http://localhost:8000/api/translate', {
           texts: extractedData.required_documents || [],

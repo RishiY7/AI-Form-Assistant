@@ -1,34 +1,26 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from google import genai
 from google.genai import types
 import json
 import os
 import shutil
-from dotenv import load_dotenv
+from gemini_util import gemini_manager
 from extract import process_form_images
 
-# Load API keys securely
-load_dotenv()
-
 app = FastAPI(title="AI Form Assistant API")
+
+# Simple in-memory cache for translations
+translation_cache = {}
 
 # Configure CORS for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, restrict to specific frontend URLs
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Initialize Google GenAI Client
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY is missing from the .env file")
-
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 class ChatRequest(BaseModel):
     question: str
@@ -40,23 +32,49 @@ class TranslateRequest(BaseModel):
 
 @app.post("/api/translate")
 async def translate_texts(request: TranslateRequest):
-    if request.target_language == "English" or not request.texts:
-        return {"translated_texts": request.texts}
+    if not request.texts:
+        return {"translated_texts": []}
 
-    prompt = f"Translate the following JSON array of strings into {request.target_language}. Use common, everyday spoken language (especially for Hindi and Kannada) that is easy for the general public to understand, avoiding overly formal or complex vocabulary. Respond ONLY with a valid JSON array of strings in the exact same order. Do not include any explanations, reasoning, or markdown tags.\n\nInput: {json.dumps(request.texts)}"
+    # Check cache for every individual text
+    uncached_texts = []
+    results_map = {}
+    
+    for text in request.texts:
+        cache_key = f"{text}_{request.target_language}"
+        if cache_key in translation_cache:
+            results_map[text] = translation_cache[cache_key]
+        else:
+            uncached_texts.append(text)
+    
+    if not uncached_texts:
+        return {"translated_texts": [results_map[t] for t in request.texts]}
 
-    try:
-        response = gemini_client.models.generate_content(
-            model="gemini-2.0-flash",
+    prompt = f"""For each of the following strings (extracted from a form), provide:
+1. The English translation.
+2. The Hindi translation (common, everyday spoken language).
+3. The Kannada translation (common, everyday spoken language).
+
+Input JSON array: {json.dumps(uncached_texts)}
+
+Respond ONLY with a valid JSON array of objects, where each object has keys "english", "hindi", and "kannada". Do not include any explanations or markdown tags."""
+
+    def make_request(client, model_name):
+        return client.models.generate_content(
+            model=model_name,
             contents=[prompt],
             config=types.GenerateContentConfig(
-                system_instruction="You are a professional translator. You MUST output ONLY a valid JSON array. Never include any conversational text.",
+                system_instruction="You are a professional multilingual translator. You MUST output ONLY a valid JSON array of objects. Never include any conversational text.",
                 temperature=0.0
             )
         )
-        response_text = response.text.strip()
 
-        # Strip potential markdown formatting
+    try:
+        try:
+            response = gemini_manager.call_with_fallback(make_request, "gemini-3.1-flash-lite-preview")
+        except Exception:
+            response = gemini_manager.call_with_fallback(make_request, "gemini-2.5-flash")
+        
+        response_text = response.text.strip()
         if response_text.startswith("```json"):
             response_text = response_text[7:]
         if response_text.startswith("```"):
@@ -65,37 +83,53 @@ async def translate_texts(request: TranslateRequest):
             response_text = response_text[:-3]
         response_text = response_text.strip()
 
-        translated_array = json.loads(response_text)
+        translated_data = json.loads(response_text)
+        
+        for i, item in enumerate(translated_data):
+            # The 'orig' here might already be "Source / English"
+            orig_composite = uncached_texts[i]
+            eng = item.get("english", "")
+            hi = item.get("hindi", "")
+            kn = item.get("kannada", "")
+            
+            final_parts = []
+            
+            if request.target_language == "Hindi":
+                # Order: Hindi / OriginalComposite
+                final_parts.append(hi)
+                if orig_composite.lower() != hi.lower():
+                    final_parts.append(orig_composite)
+            elif request.target_language == "Kannada":
+                # Order: Kannada / OriginalComposite
+                final_parts.append(kn)
+                if orig_composite.lower() != kn.lower():
+                    final_parts.append(orig_composite)
+            else:
+                final_parts.append(orig_composite)
+            
+            translated_str = " / ".join(final_parts)
+            results_map[orig_composite] = translated_str
+            # Cache it
+            translation_cache[f"{orig_composite}_{request.target_language}"] = translated_str
 
-        # Combine original English and translated text
-        bilingual_texts = [
-            f"{orig} / {trans}" 
-            for orig, trans in zip(request.texts, translated_array)
-        ]
-
-        return {"translated_texts": bilingual_texts}
+        return {"translated_texts": [results_map[t] for t in request.texts]}
     except Exception as e:
         print(f"Translation parsing error: {e}")
-        print(f"Cleaned response text: {response_text if 'response_text' in locals() else 'None'}")
-        # Fallback to original text if parsing fails
-        return {"translated_texts": request.texts}
+        # Return what we have from cache, or original as fallback
+        return {"translated_texts": [results_map.get(t, t) for t in request.texts]}
 
 @app.post("/api/upload")
 async def upload_form(files: list[UploadFile] = File(...)):
     temp_file_paths = []
-
     try:
-        # Save all uploaded files temporarily
         for file in files:
             temp_file_path = f"temp_{file.filename}"
             temp_file_paths.append(temp_file_path)
             with open(temp_file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
 
-        # Process multi-page images with Gemini
         data = process_form_images(temp_file_paths)
 
-        # Clean up temporary files
         for temp_file_path in temp_file_paths:
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
@@ -113,7 +147,6 @@ async def upload_form(files: list[UploadFile] = File(...)):
 
 @app.post("/api/chat")
 async def chat_with_form(request: ChatRequest):
-    # 1. Load the extracted form text
     try:
         with open("extracted_data.json", "r", encoding="utf-8") as f:
             form_data = json.load(f)
@@ -123,14 +156,16 @@ async def chat_with_form(request: ChatRequest):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Form data not found. Please upload and extract a form first.")
 
-    # Format the required documents for the prompt
     req_docs_str = "\n- ".join(required_docs) if required_docs else "None specified."
     form_fields_str = "\n- ".join(form_fields) if form_fields else "None specified."
 
-    # 2. Construct the prompt for Gemini
     system_prompt = f"""You are a helpful form-filling assistant.
 Your goal is to guide the user to fill out the uploaded form.
-You must respond entirely in {request.language}. Use common, everyday spoken language (especially for Hindi and Kannada) that is easy for the general public to understand, avoiding overly formal or complex vocabulary. All your explanations, guidance, and answers must be written in {request.language}.
+
+CRITICAL: You MUST respond ENTIRELY and EXCLUSIVELY in {request.language}. 
+Do not use a single word of English if the language is Hindi or Kannada.
+Use common, everyday spoken language that is easy for the general public to understand.
+All your explanations, guidance, and answers must be written in {request.language}.
 
 Here are the blank fields that need to be filled in this form:
 {form_fields_str}
@@ -148,10 +183,9 @@ Required Documents mentioned in this form:
 - {req_docs_str}
 """
 
-    # 3. Request the answer from the Google Gemini API
-    try:
-        response = gemini_client.models.generate_content(
-            model="gemini-2.0-flash",
+    def make_request(client, model_name):
+        return client.models.generate_content(
+            model=model_name,
             contents=[request.question],
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
@@ -159,8 +193,13 @@ Required Documents mentioned in this form:
             )
         )
 
-        answer_text = response.text.strip()
+    try:
+        try:
+            response = gemini_manager.call_with_fallback(make_request, "gemini-3.1-flash-lite-preview")
+        except Exception:
+            response = gemini_manager.call_with_fallback(make_request, "gemini-2.5-flash")
 
+        answer_text = response.text.strip()
         return {"answer": answer_text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"API Error: {str(e)}")

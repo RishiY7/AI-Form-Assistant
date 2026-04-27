@@ -47,10 +47,7 @@ async def generate_tts(request: TTSRequest):
             text_to_speak = parts[0].strip() # Assume the primary language is first
 
         tts = gTTS(text=text_to_speak, lang=request.lang)
-        audio_stream = io.BytesIO()
-        tts.write_to_fp(audio_stream)
-        audio_stream.seek(0)
-        return StreamingResponse(audio_stream, media_type="audio/mpeg")
+        return StreamingResponse(tts.stream(), media_type="audio/mpeg")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

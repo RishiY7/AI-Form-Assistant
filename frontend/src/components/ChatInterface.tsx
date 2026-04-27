@@ -45,29 +45,22 @@ export function ChatInterface({ language, setLanguage }: ChatInterfaceProps) {
       let preferredVoice = null;
       
       if (language === 'Kannada') {
-        // Try multiple ways to find Kannada
-        preferredVoice = voices.find(v => 
-          v.lang.toLowerCase().startsWith('kn') || 
-          v.name.toLowerCase().includes('kannada') || 
-          v.name.toLowerCase().includes('kn-in')
-        );
+        preferredVoice = voices.find(v => (v.lang === 'kn-IN' || v.lang === 'kn') && v.name.includes('Google')) ||
+                         voices.find(v => v.name.includes('ಕನ್ನಡ') || v.name.toLowerCase().includes('kannada'));
       } else if (language === 'Hindi') {
-        preferredVoice = voices.find(v => 
-          v.lang.toLowerCase().startsWith('hi') || 
-          v.name.toLowerCase().includes('hindi') || 
-          v.name.toLowerCase().includes('hi-in')
-        );
+        preferredVoice = voices.find(v => (v.lang === 'hi-IN' || v.lang === 'hi') && v.name.includes('Google')) ||
+                         voices.find(v => v.name.includes('हिन्दी') || v.name.toLowerCase().includes('hindi'));
       } else {
-        preferredVoice = voices.find(v => 
-          v.lang.toLowerCase().startsWith('en')
-        );
+        preferredVoice = voices.find(v => v.lang === 'en-IN' && v.name.includes('Google')) ||
+                         voices.find(v => v.lang.toLowerCase().startsWith('en-in')) ||
+                         voices.find(v => v.lang.toLowerCase().startsWith('en'));
       }
       
       if (preferredVoice) {
         utterance.voice = preferredVoice;
         console.log(`Matched voice for ${language}: ${preferredVoice.name} (${preferredVoice.lang})`);
       } else {
-        console.warn(`No specific voice found for ${language}, using default.`);
+        console.warn(`No specific voice found for ${language}, relying on browser default for lang ${utterance.lang}.`);
       }
       
       utterance.rate = 0.9;

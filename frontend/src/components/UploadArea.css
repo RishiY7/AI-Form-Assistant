@@ -1,0 +1,121 @@
+.upload-container {
+  width: 100%;
+}
+
+.upload-dropzone {
+  background: var(--surface-container-lowest);
+  border: 2px dashed var(--outline-variant);
+  border-radius: var(--radius-xl);
+  padding: 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.upload-dropzone:hover {
+  border-color: var(--primary);
+}
+
+.upload-dropzone.drag-active {
+  background: var(--surface-container-low);
+  border-color: var(--primary);
+  border-style: solid;
+}
+
+.upload-dropzone.success {
+  border-color: #10b981;
+}
+
+.hidden-input {
+  display: none;
+}
+
+.upload-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.icon-wrapper {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-pill);
+  background-color: var(--primary-fixed);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  transition: transform 0.3s ease;
+}
+
+.upload-dropzone:hover .group-hover-scale {
+  transform: scale(1.1);
+}
+
+.spin {
+  animation: spin 1.5s linear infinite;
+}
+
+.upload-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--on-surface);
+  margin-bottom: 8px;
+}
+
+.upload-desc {
+  font-size: 14px;
+  color: var(--outline);
+}
+
+.mb-6 {
+  margin-bottom: 24px;
+}
+
+.browse-btn {
+  background-color: var(--primary);
+  color: var(--on-primary);
+  padding: 12px 32px;
+  border: none;
+  font-weight: 500;
+  font-size: 14px;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-md);
+  transition: all 0.2s ease;
+}
+
+.browse-btn:hover {
+  background-color: var(--primary-container);
+}
+
+.browse-btn:active {
+  transform: scale(0.95);
+}
+
+.success .upload-icon,
+.success .upload-title {
+  color: #10b981;
+}
+
+.error-message {
+  margin-top: 24px;
+  padding: 16px;
+  background-color: var(--error-container);
+  color: var(--on-error-container);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

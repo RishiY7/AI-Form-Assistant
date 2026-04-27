@@ -1,10 +1,13 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from google.genai import types
 import json
 import os
 import shutil
+import io
+from gtts import gTTS
 from gemini_util import gemini_manager
 from extract import process_form_images
 
@@ -29,6 +32,27 @@ class ChatRequest(BaseModel):
 class TranslateRequest(BaseModel):
     texts: list[str]
     target_language: str
+
+class TTSRequest(BaseModel):
+    text: str
+    lang: str = "kn"
+
+@app.post("/api/tts")
+async def generate_tts(request: TTSRequest):
+    try:
+        # Extract just the Kannada part if it's a composite string (Kannada / English)
+        text_to_speak = request.text
+        if " / " in text_to_speak:
+            parts = text_to_speak.split(" / ")
+            text_to_speak = parts[0].strip() # Assume the primary language is first
+
+        tts = gTTS(text=text_to_speak, lang=request.lang)
+        audio_stream = io.BytesIO()
+        tts.write_to_fp(audio_stream)
+        audio_stream.seek(0)
+        return StreamingResponse(audio_stream, media_type="audio/mpeg")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/translate")
 async def translate_texts(request: TranslateRequest):

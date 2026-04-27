@@ -20,11 +20,23 @@ export function ChatInterface({ language, setLanguage }: ChatInterfaceProps) {
   const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const speak = (text: string) => {
+  const speak = async (text: string) => {
     if (isMuted || !text) return;
     
     // Ensure we cancel any current speech
     window.speechSynthesis.cancel();
+
+    if (language === 'Kannada') {
+      try {
+        const response = await axios.post('http://localhost:8000/api/tts', { text, lang: 'kn' }, { responseType: 'blob' });
+        const audioUrl = URL.createObjectURL(response.data);
+        const audio = new Audio(audioUrl);
+        audio.play();
+        return;
+      } catch (error) {
+        console.error("Cloud TTS failed, falling back to browser.", error);
+      }
+    }
 
     const utterance = new SpeechSynthesisUtterance(text);
     const langMap: Record<string, string> = {
